@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use log::trace;
+use log::{debug, error, trace, warn};
 
 use google_maps::GoogleMapsClient;
 
@@ -43,7 +43,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
+        debug!("{} is connected!", ready.user.name);
     }
 }
 
@@ -84,7 +84,7 @@ async fn main() {
     }
 
     if let Err(why) = client.start().await {
-        println!("Client error: {:?}", why);
+        error!("Client error: {:?}", why);
     }
 }
 
@@ -110,7 +110,7 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         .say(&ctx.http, format!("Location {:?} received.", coords))
         .await
     {
-        println!("Error sending message: {:?}", why);
+        warn!("Error sending message: {:?}", why);
     }
 
     let author_id = msg.author.id.0;
@@ -139,33 +139,40 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         })
         .to_string();
 
-        let operation = client
+        client
             .from("location")
             .auth(&supabase_token)
             .insert(json)
             .execute()
             .await?;
-        println!("{:?}", operation);
     } else {
         let json = json!({"location": coords, "user_name": msg.author.name}).to_string();
-        if let Err(why) = client
+        client
             .from("location")
             .auth(&supabase_token)
             .eq("user_id", format!("{}", author_id))
             .update(json)
             .execute()
-            .await
-        {
-            println!("Creating new entry error, {:?}", why)
-        };
+            .await?;
     }
-
-    println!("{:?}", response);
 
     Ok(())
 }
 
 #[command]
-async fn clear(ctx: &Context, msg: &Message) -> CommandResult {
+async fn clear(_: &Context, msg: &Message) -> CommandResult {
+    let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
+    let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
+        .insert_header("apikey", format!("{}", supabase_token));
+    let author_id = format!("{}", msg.author.id.0);
+
+    client
+        .from("location")
+        .auth(supabase_token)
+        .eq("user_id", author_id)
+        .delete()
+        .execute()
+        .await?;
+
     Ok(())
 }
