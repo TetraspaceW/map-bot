@@ -1,12 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
+use log::trace;
+
+use google_maps::GoogleMapsClient;
+
 use serenity::{
     async_trait,
     client::bridge::gateway::ShardManager,
     framework::{
         standard::{
             macros::{command, group},
-            CommandResult,
+            Args, CommandResult,
         },
         StandardFramework,
     },
@@ -18,7 +22,7 @@ use serenity::{
 use tokio::sync::Mutex;
 
 #[group]
-#[commands(location)]
+#[commands(location, clear)]
 struct General;
 
 struct ShardManagerContainer;
@@ -43,6 +47,11 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
+    env_logger::builder()
+        .filter_module("map_bot", log::LevelFilter::Trace)
+        .init();
+    trace!("Logger init with level TRACE.");
+
     let token = dotenv::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set.");
     let http = Http::new(&token);
     let bot_id = http
@@ -78,8 +87,33 @@ async fn main() {
 }
 
 #[command]
-async fn location(ctx: &Context, msg: &Message) -> CommandResult {
-    
+async fn location(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    trace!("Received location command.");
+    let location = args.single::<String>()?;
+    trace!("Parsed args from command.");
+    let google_maps_client = GoogleMapsClient::new(&dotenv::var("GOOGLE_MAPS_TOKEN")?);
+    trace!("Read Google Maps token from env.");
+
+    let location = google_maps_client
+        .geocoding()
+        .with_address(&location)
+        .execute()
+        .await?;
+    trace!("Executed geocoding request.");
+
+    if let Err(why) = msg
+        .channel_id
+        .say(
+            &ctx.http,
+            format!(
+                "Location {:?} received.",
+                location.results.first().unwrap().geometry.location
+            ),
+        )
+        .await
+    {
+        println!("Error sending message: {:?}", why);
+    }
 
     Ok(())
 }
