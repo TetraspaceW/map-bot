@@ -895,6 +895,8 @@ dependencies = [
  "env_logger",
  "google_maps",
  "log",
+ "postgrest",
+ "serde_json",
  "serenity",
  "tokio",
 ]
@@ -1176,6 +1178,15 @@ name = "pkg-config"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26072860ba924cbfa98ea39c8c19b4dd6a4a25423dbdf219c1eca91aa0cf6964"
+
+[[package]]
+name = "postgrest"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a966c650b47a064e7082170b4be74fca08c088d893244fc4b70123e3c1f3ee7"
+dependencies = [
+ "reqwest",
+]
 
 [[package]]
 name = "powerfmt"

@@ -4,6 +4,8 @@ use log::trace;
 
 use google_maps::GoogleMapsClient;
 
+use postgrest::Postgrest;
+use serde_json::{json, Value};
 use serenity::{
     async_trait,
     client::bridge::gateway::ShardManager,
@@ -87,9 +89,9 @@ async fn main() {
 }
 
 #[command]
-async fn location(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     trace!("Received location command.");
-    let location = args.single::<String>()?;
+    let location = args.rest();
     trace!("Parsed args from command.");
     let google_maps_client = GoogleMapsClient::new(&dotenv::var("GOOGLE_MAPS_TOKEN")?);
     trace!("Read Google Maps token from env.");
@@ -101,19 +103,64 @@ async fn location(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult
         .await?;
     trace!("Executed geocoding request.");
 
+    let coords = &location.results.first().unwrap().geometry.location;
+
     if let Err(why) = msg
         .channel_id
-        .say(
-            &ctx.http,
-            format!(
-                "Location {:?} received.",
-                location.results.first().unwrap().geometry.location
-            ),
-        )
+        .say(&ctx.http, format!("Location {:?} received.", coords))
         .await
     {
         println!("Error sending message: {:?}", why);
     }
+
+    let author_id = msg.author.id.0;
+
+    let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
+    let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
+        .insert_header("apikey", format!("{}", supabase_token));
+
+    let raw_resp = client
+        .from("location")
+        .auth(&supabase_token)
+        .eq("user_id", format!("{}", author_id))
+        .select("id")
+        .execute()
+        .await?
+        .text()
+        .await?;
+
+    let response: Value = serde_json::from_str(&raw_resp)?;
+    let array = response.as_array().unwrap();
+    if array.is_empty() {
+        let json = json!({
+            "user_id": author_id,
+            "location": coords,
+            "user_name": msg.author.name
+        })
+        .to_string();
+
+        let operation = client
+            .from("location")
+            .auth(&supabase_token)
+            .insert(json)
+            .execute()
+            .await?;
+        println!("{:?}", operation);
+    } else {
+        let json = json!({"location": coords, "user_name": msg.author.name}).to_string();
+        if let Err(why) = client
+            .from("location")
+            .auth(&supabase_token)
+            .eq("user_id", format!("{}", author_id))
+            .update(json)
+            .execute()
+            .await
+        {
+            println!("Creating new entry error, {:?}", why)
+        };
+    }
+
+    println!("{:?}", response);
 
     Ok(())
 }
