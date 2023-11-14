@@ -41,11 +41,12 @@ trait GeocodingService {
         Self: Sized;
     async fn geocode(&self, location: String) -> Result<Location, MapBotError>;
 }
+
 struct GoogleMapsService {
     client: GoogleMapsClient,
 }
-#[async_trait]
 
+#[async_trait]
 impl GeocodingService for GoogleMapsService {
     fn new() -> Result<Self, MapBotError> {
         let service = Ok(GoogleMapsService {
