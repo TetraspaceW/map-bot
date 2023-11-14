@@ -49,11 +49,9 @@ struct GoogleMapsService {
 #[async_trait]
 impl GeocodingService for GoogleMapsService {
     fn new() -> Result<Self, MapBotError> {
-        let service = Ok(GoogleMapsService {
+        Ok(GoogleMapsService {
             client: GoogleMapsClient::new(&dotenv::var("GOOGLE_MAPS_TOKEN")?),
-        });
-        trace!("Successfully initialised Google Maps client.");
-        service
+        })
     }
 
     async fn geocode(&self, location: String) -> Result<Location, MapBotError> {
@@ -69,6 +67,102 @@ impl GeocodingService for GoogleMapsService {
             lat: coordinates.lat,
             lng: coordinates.lng,
         })
+    }
+}
+
+#[async_trait]
+trait LocationStorageService {
+    fn new() -> Result<Self, MapBotError>
+    where
+        Self: Sized;
+    async fn get_location(&self, user_id: &String) -> Result<String, MapBotError>;
+    async fn save_location(
+        &self,
+        user_id: &String,
+        location: &Location,
+        user_name: &String,
+    ) -> Result<(), MapBotError>;
+    async fn delete_location(&self, user_id: String) -> Result<(), MapBotError>;
+}
+
+struct SupabaseService {
+    client: Postgrest,
+    supabase_token: String,
+}
+
+#[async_trait]
+impl LocationStorageService for SupabaseService {
+    fn new() -> Result<Self, MapBotError> {
+        let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
+        let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
+            .insert_header("apikey", format!("{}", supabase_token));
+        Ok(SupabaseService {
+            client,
+            supabase_token,
+        })
+    }
+
+    async fn get_location(&self, user_id: &String) -> Result<String, MapBotError> {
+        let raw_resp = self
+            .client
+            .from("location")
+            .auth(&self.supabase_token)
+            .eq("user_id", &user_id)
+            .select("id")
+            .execute()
+            .await?
+            .text()
+            .await?;
+
+        let response: Value = serde_json::from_str(&raw_resp)?;
+        let result = response.as_array().unwrap().first().unwrap().to_string();
+        Ok(result)
+    }
+
+    async fn save_location(
+        &self,
+        user_id: &String,
+        coords: &Location,
+        user_name: &String,
+    ) -> Result<(), MapBotError> {
+        if let Ok(_) = self.get_location(&user_id).await {
+            let json = json!({"location": coords, "user_name": user_name}).to_string();
+            self.client
+                .from("location")
+                .auth(&self.supabase_token)
+                .eq("user_id", user_id)
+                .update(json)
+                .execute()
+                .await?;
+        } else {
+            let json = json!({
+                "user_id": user_id,
+                "location": coords,
+                "user_name": user_name
+            })
+            .to_string();
+
+            self.client
+                .from("location")
+                .auth(&self.supabase_token)
+                .insert(json)
+                .execute()
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn delete_location(&self, user_id: String) -> Result<(), MapBotError> {
+        self.client
+            .from("location")
+            .auth(&self.supabase_token)
+            .eq("user_id", user_id)
+            .delete()
+            .execute()
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -101,7 +195,6 @@ async fn main() {
     env_logger::builder()
         .filter_module("map_bot", log::LevelFilter::Trace)
         .init();
-    trace!("Logger init with level TRACE.");
 
     let token = dotenv::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set.");
     let http = Http::new(&token);
@@ -139,12 +232,18 @@ async fn main() {
 
 #[command]
 async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-    trace!("Received location command.");
     let location = args.rest();
-    trace!("Parsed args from command.");
 
-    let geocoding_service: GoogleMapsService = GeocodingService::new().unwrap();
+    let geocoding_service: GoogleMapsService = GeocodingService::new()?;
     let coords = geocoding_service.geocode(location.to_string()).await?;
+
+    let author_id = format!("{}", msg.author.id.0);
+    let author_name = format!("{}", msg.author.name);
+
+    let storage_service: SupabaseService = LocationStorageService::new()?;
+    storage_service
+        .save_location(&author_id, &coords, &author_name)
+        .await?;
 
     if let Err(why) = msg
         .channel_id
@@ -154,66 +253,15 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         warn!("Error sending message: {:?}", why);
     }
 
-    let author_id = msg.author.id.0;
-
-    let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
-    let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
-        .insert_header("apikey", format!("{}", supabase_token));
-
-    let raw_resp = client
-        .from("location")
-        .auth(&supabase_token)
-        .eq("user_id", format!("{}", author_id))
-        .select("id")
-        .execute()
-        .await?
-        .text()
-        .await?;
-
-    let response: Value = serde_json::from_str(&raw_resp)?;
-    let array = response.as_array().unwrap();
-    if array.is_empty() {
-        let json = json!({
-            "user_id": author_id,
-            "location": coords,
-            "user_name": msg.author.name
-        })
-        .to_string();
-
-        client
-            .from("location")
-            .auth(&supabase_token)
-            .insert(json)
-            .execute()
-            .await?;
-    } else {
-        let json = json!({"location": coords, "user_name": msg.author.name}).to_string();
-        client
-            .from("location")
-            .auth(&supabase_token)
-            .eq("user_id", format!("{}", author_id))
-            .update(json)
-            .execute()
-            .await?;
-    }
-
     Ok(())
 }
 
 #[command]
 async fn clear(_: &Context, msg: &Message) -> CommandResult {
-    let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
-    let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
-        .insert_header("apikey", format!("{}", supabase_token));
     let author_id = format!("{}", msg.author.id.0);
 
-    client
-        .from("location")
-        .auth(supabase_token)
-        .eq("user_id", author_id)
-        .delete()
-        .execute()
-        .await?;
+    let storage_service: SupabaseService = LocationStorageService::new()?;
+    storage_service.delete_location(author_id).await?;
 
     Ok(())
 }
