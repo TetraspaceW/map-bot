@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, error::Error, sync::Arc};
 
 use log::{debug, error, trace, warn};
 
@@ -21,7 +21,55 @@ use serenity::{
     prelude::{Client, Context, EventHandler, GatewayIntents, TypeMapKey},
 };
 
+use serde::Serialize;
 use tokio::sync::Mutex;
+
+use rust_decimal::Decimal;
+
+type MapBotError = Box<dyn Error + Send + Sync>;
+
+#[derive(Debug, Serialize)]
+struct Location {
+    lat: Decimal,
+    lng: Decimal,
+}
+
+#[async_trait]
+trait GeocodingService {
+    fn new() -> Result<Self, MapBotError>
+    where
+        Self: Sized;
+    async fn geocode(&self, location: String) -> Result<Location, MapBotError>;
+}
+struct GoogleMapsService {
+    client: GoogleMapsClient,
+}
+#[async_trait]
+
+impl GeocodingService for GoogleMapsService {
+    fn new() -> Result<Self, MapBotError> {
+        let service = Ok(GoogleMapsService {
+            client: GoogleMapsClient::new(&dotenv::var("GOOGLE_MAPS_TOKEN")?),
+        });
+        trace!("Successfully initialised Google Maps client.");
+        service
+    }
+
+    async fn geocode(&self, location: String) -> Result<Location, MapBotError> {
+        let response = self
+            .client
+            .geocoding()
+            .with_address(&location)
+            .execute()
+            .await?;
+        let coordinates = &response.results.first().unwrap().geometry.location;
+        trace!("Received coordinates from Google Maps geocoding API.");
+        Ok(Location {
+            lat: coordinates.lat,
+            lng: coordinates.lng,
+        })
+    }
+}
 
 #[group]
 #[commands(location, clear)]
@@ -93,17 +141,9 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     trace!("Received location command.");
     let location = args.rest();
     trace!("Parsed args from command.");
-    let google_maps_client = GoogleMapsClient::new(&dotenv::var("GOOGLE_MAPS_TOKEN")?);
-    trace!("Read Google Maps token from env.");
 
-    let location = google_maps_client
-        .geocoding()
-        .with_address(&location)
-        .execute()
-        .await?;
-    trace!("Executed geocoding request.");
-
-    let coords = &location.results.first().unwrap().geometry.location;
+    let geocoding_service: GoogleMapsService = GeocodingService::new().unwrap();
+    let coords = geocoding_service.geocode(location.to_string()).await?;
 
     if let Err(why) = msg
         .channel_id
