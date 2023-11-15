@@ -1,5 +1,8 @@
 use std::{collections::HashMap, error::Error, sync::Arc};
 
+use derive_more::Display;
+use thiserror::Error;
+
 use log::{debug, error, trace, warn};
 
 use google_maps::GoogleMapsClient;
@@ -26,7 +29,12 @@ use tokio::sync::Mutex;
 
 use rust_decimal::Decimal;
 
-type MapBotError = Box<dyn Error + Send + Sync>;
+type GenericError = Box<dyn Error + Send + Sync>;
+
+#[derive(Error, Debug, Display)]
+enum MapBotError {
+    UserNotFound(),
+}
 
 #[derive(Debug, Serialize)]
 struct Location {
@@ -36,10 +44,10 @@ struct Location {
 
 #[async_trait]
 trait GeocodingService {
-    fn new() -> Result<Self, MapBotError>
+    fn new() -> Result<Self, GenericError>
     where
         Self: Sized;
-    async fn geocode(&self, location: String) -> Result<Location, MapBotError>;
+    async fn geocode(&self, location: String) -> Result<Location, GenericError>;
 }
 
 struct GoogleMapsService {
@@ -48,13 +56,13 @@ struct GoogleMapsService {
 
 #[async_trait]
 impl GeocodingService for GoogleMapsService {
-    fn new() -> Result<Self, MapBotError> {
+    fn new() -> Result<Self, GenericError> {
         Ok(GoogleMapsService {
             client: GoogleMapsClient::new(&dotenv::var("GOOGLE_MAPS_TOKEN")?),
         })
     }
 
-    async fn geocode(&self, location: String) -> Result<Location, MapBotError> {
+    async fn geocode(&self, location: String) -> Result<Location, GenericError> {
         let response = self
             .client
             .geocoding()
@@ -72,17 +80,17 @@ impl GeocodingService for GoogleMapsService {
 
 #[async_trait]
 trait LocationStorageService {
-    fn new() -> Result<Self, MapBotError>
+    fn new() -> Result<Self, GenericError>
     where
         Self: Sized;
-    async fn get_location(&self, user_id: &String) -> Result<String, MapBotError>;
+    async fn get_location(&self, user_id: &String) -> Result<String, GenericError>;
     async fn save_location(
         &self,
         user_id: &String,
         location: &Location,
         user_name: &String,
-    ) -> Result<(), MapBotError>;
-    async fn delete_location(&self, user_id: String) -> Result<(), MapBotError>;
+    ) -> Result<(), GenericError>;
+    async fn delete_location(&self, user_id: String) -> Result<(), GenericError>;
 }
 
 struct SupabaseService {
@@ -92,7 +100,7 @@ struct SupabaseService {
 
 #[async_trait]
 impl LocationStorageService for SupabaseService {
-    fn new() -> Result<Self, MapBotError> {
+    fn new() -> Result<Self, GenericError> {
         let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
         let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
             .insert_header("apikey", format!("{}", supabase_token));
@@ -102,7 +110,7 @@ impl LocationStorageService for SupabaseService {
         })
     }
 
-    async fn get_location(&self, user_id: &String) -> Result<String, MapBotError> {
+    async fn get_location(&self, user_id: &String) -> Result<String, GenericError> {
         let raw_resp = self
             .client
             .from("location")
@@ -115,8 +123,12 @@ impl LocationStorageService for SupabaseService {
             .await?;
 
         let response: Value = serde_json::from_str(&raw_resp)?;
-        let result = response.as_array().unwrap().first().unwrap().to_string();
-        Ok(result)
+        let result = response.as_array().unwrap();
+        if let Some(location) = result.first() {
+            Ok(location.to_string())
+        } else {
+            Err(MapBotError::UserNotFound().into())
+        }
     }
 
     async fn save_location(
@@ -124,7 +136,7 @@ impl LocationStorageService for SupabaseService {
         user_id: &String,
         coords: &Location,
         user_name: &String,
-    ) -> Result<(), MapBotError> {
+    ) -> Result<(), GenericError> {
         if let Ok(_) = self.get_location(&user_id).await {
             let json = json!({"location": coords, "user_name": user_name}).to_string();
             self.client
@@ -153,7 +165,7 @@ impl LocationStorageService for SupabaseService {
         Ok(())
     }
 
-    async fn delete_location(&self, user_id: String) -> Result<(), MapBotError> {
+    async fn delete_location(&self, user_id: String) -> Result<(), GenericError> {
         self.client
             .from("location")
             .auth(&self.supabase_token)
