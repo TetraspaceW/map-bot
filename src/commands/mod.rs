@@ -25,7 +25,7 @@ async fn help(
     groups: &[&'static CommandGroup],
     owners: HashSet<UserId>,
 ) -> CommandResult {
-    let _ = with_embeds(context, msg, args, &help_options, groups, owners).await?;
+    let _ = with_embeds(context, msg, args, help_options, groups, owners).await?;
     Ok(())
 }
 
@@ -43,8 +43,8 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let geocoding_service: GoogleMapsService = GeocodingService::new()?;
     let coords = geocoding_service.geocode(location.to_string()).await?;
 
-    let author_id = format!("{}", msg.author.id.0);
-    let author_name = format!("{}", msg.author.name);
+    let author_id = msg.author.id.0.to_string();
+    let author_name = msg.author.name.to_string();
 
     let storage_service: SupabaseService = LocationStorageService::new()?;
     storage_service

@@ -11,12 +11,12 @@ pub trait LocationStorageService {
     fn new() -> Result<Self, GenericError>
     where
         Self: Sized;
-    async fn get_location(&self, user_id: &String) -> Result<String, GenericError>;
+    async fn get_location(&self, user_id: &str) -> Result<String, GenericError>;
     async fn save_location(
         &self,
-        user_id: &String,
+        user_id: &str,
         location: &Location,
-        user_name: &String,
+        user_name: &str,
     ) -> Result<(), GenericError>;
     async fn delete_location(&self, user_id: String) -> Result<(), GenericError>;
 }
@@ -30,20 +30,20 @@ pub struct SupabaseService {
 impl LocationStorageService for SupabaseService {
     fn new() -> Result<Self, GenericError> {
         let supabase_token = dotenv::var("SUPABASE_TOKEN")?;
-        let client = Postgrest::new(&dotenv::var("SUPABASE_ENDPOINT")?)
-            .insert_header("apikey", format!("{}", supabase_token));
+        let client = Postgrest::new(dotenv::var("SUPABASE_ENDPOINT")?)
+            .insert_header("apikey", &supabase_token);
         Ok(SupabaseService {
             client,
             supabase_token,
         })
     }
 
-    async fn get_location(&self, user_id: &String) -> Result<String, GenericError> {
+    async fn get_location(&self, user_id: &str) -> Result<String, GenericError> {
         let raw_resp = self
             .client
             .from("location")
             .auth(&self.supabase_token)
-            .eq("user_id", &user_id)
+            .eq("user_id", user_id)
             .select("id")
             .execute()
             .await?
@@ -62,11 +62,11 @@ impl LocationStorageService for SupabaseService {
 
     async fn save_location(
         &self,
-        user_id: &String,
+        user_id: &str,
         coords: &Location,
-        user_name: &String,
+        user_name: &str,
     ) -> Result<(), GenericError> {
-        if let Ok(_) = self.get_location(&user_id).await {
+        if self.get_location(user_id).await.is_ok() {
             let json = json!({"location": coords, "user_name": user_name}).to_string();
             self.client
                 .from("location")
