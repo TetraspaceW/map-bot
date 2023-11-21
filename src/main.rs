@@ -6,7 +6,14 @@ use commands::{GENERAL_GROUP, HELP};
 use derive_more::Display;
 use log::*;
 use serenity::{
-    async_trait, framework::StandardFramework, http::Http, model::prelude::*, prelude::*,
+    async_trait,
+    framework::{
+        standard::{macros::hook, CommandResult},
+        StandardFramework,
+    },
+    http::Http,
+    model::prelude::*,
+    prelude::*,
 };
 use std::error::Error;
 use thiserror::Error;
@@ -28,10 +35,18 @@ impl EventHandler for Handler {
     }
 }
 
+#[hook]
+async fn after(_ctx: &Context, _msg: &Message, command_name: &str, command_result: CommandResult) {
+    match command_result {
+        Ok(()) => debug!("Processed command '{}'", command_name),
+        Err(why) => warn!("Command '{}' returned error {:?}", command_name, why),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::builder()
-        .filter_module("map_bot", log::LevelFilter::Info)
+        .filter_level(log::LevelFilter::Warn)
         .init();
 
     let token = dotenv::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set.");
@@ -49,7 +64,8 @@ async fn main() {
                 .prefix("!tetramap")
         })
         .group(&GENERAL_GROUP)
-        .help(&HELP);
+        .help(&HELP)
+        .after(after);
 
     let intents = GatewayIntents::all();
     let mut client = Client::builder(&token, intents)
