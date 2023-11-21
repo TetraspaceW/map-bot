@@ -1,22 +1,23 @@
-name: Rust
+name: CICD
 
 on:
   push:
-    branches: [ "mistress" ]
+    branches: ["mistress"]
   pull_request:
-    branches: [ "mistress" ]
-
-env:
-  CARGO_TERM_COLOR: always
+    branches: ["mistress"]
 
 jobs:
-  build:
-
+  build-container:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v3
+      - name: create env file
+        run: |
+          touch .env
+          echo SUPABASE_ENDPOINT=${{ secrets.SUPABASE_ENDPOINT }} >> .env
+          echo SUPABASE_TOKEN=${{ secrets.SUPABASE_TOKEN }} >> .env
+          echo GOOGLE_MAPS_TOKEN=${{ secrets.GOOGLE_MAPS_TOKEN }} >> .env
+          echo DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }} >> .env
+      - name: Docker compose
+        run: docker compose build
