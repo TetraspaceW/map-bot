@@ -1,9 +1,10 @@
+use super::Location;
+
 use crate::{GenericError, MapBotError};
+
 use async_trait::async_trait;
 use google_maps::GoogleMapsClient;
-use log::trace;
-
-use super::Location;
+use log::*;
 
 #[async_trait]
 pub trait GeocodingService {
