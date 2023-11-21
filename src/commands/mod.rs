@@ -34,7 +34,7 @@ async fn help(
 struct General;
 
 #[command]
-#[description("Add your location to the table.")]
+#[description("Reveal your location to amp's sight.")]
 #[usage("[location]")]
 #[example("London")]
 async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
@@ -63,7 +63,7 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 }
 
 #[command]
-#[description = "Remove your location from the table."]
+#[description = "Obscure your location from amp's sight."]
 #[usage("")]
 async fn clear(_: &Context, msg: &Message) -> CommandResult {
     let author_id = format!("{}", msg.author.id.0);
