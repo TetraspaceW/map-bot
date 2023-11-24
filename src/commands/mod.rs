@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::services::{
     database::{LocationStorageService, SupabaseService},
     geocoding::{GeocodingService, GoogleMapsService},
+    Flight, Location,
 };
 
 use log::*;
@@ -30,7 +31,7 @@ async fn help(
 }
 
 #[group]
-#[commands(location, clear)]
+#[commands(location, clear, flight)]
 struct General;
 
 #[command]
@@ -44,7 +45,7 @@ async fn location(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let coords = geocoding_service.geocode(location.to_string()).await?;
 
     let author_id = msg.author.id.0.to_string();
-    let author_name = msg.author.name.to_string();
+    let author_name: String = msg.author.name.to_string();
 
     let storage_service: SupabaseService = LocationStorageService::new()?;
     storage_service
@@ -70,6 +71,33 @@ async fn clear(_: &Context, msg: &Message) -> CommandResult {
 
     let storage_service: SupabaseService = LocationStorageService::new()?;
     storage_service.delete_location(author_id).await?;
+
+    Ok(())
+}
+
+#[command]
+#[description = "Add yourself to the amp flight scout mesh"]
+#[usage("[flight1]...[flightN] [destination]")]
+async fn journey(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    Ok(())
+}
+
+#[command]
+#[description = "Add yourself to the amp flight scout mesh"]
+async fn flight(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+    let user_id = format!("{}", msg.author.id.0);
+    let user_name: String = msg.author.name.to_string();
+
+    let storage_service: SupabaseService = LocationStorageService::new()?;
+    let flight_id = args.single::<String>()?;
+
+    storage_service
+        .save_location(
+            &user_id,
+            &Location::Flight(Flight { id: flight_id }),
+            &user_name,
+        )
+        .await?;
 
     Ok(())
 }

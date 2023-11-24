@@ -1,6 +1,6 @@
 use super::Location;
 
-use crate::{GenericError, MapBotError};
+use crate::{services::Coordinates, GenericError, MapBotError};
 
 use async_trait::async_trait;
 use google_maps::GoogleMapsClient;
@@ -40,9 +40,9 @@ impl GeocodingService for GoogleMapsService {
             .geometry
             .location;
         trace!("Received coordinates from Google Maps geocoding API.");
-        Ok(Location {
+        Ok(Location::Coordinates(Coordinates {
             lat: coordinates.lat,
             lng: coordinates.lng,
-        })
+        }))
     }
 }
